@@ -34,3 +34,19 @@ flags 参数含义如下：
 - O_SYNC 等待物理 I/O 结束后再 write，包括更新文件属性的 I/O
 
 Open/Open.cpp 中有关于前 7 个 flag 的相关例子
+
+## Lseek
+
+lseek 函数用于修改文件当前偏移，其接受三个参数第一个参数为文件描述符 fd，第二个参数为相对于 whence 的当前偏移，第三个参数为一个类似于标志的东西，其定义如下：
+
+```CPP
+off_t lseek(int fd, off_t offset, int whence);
+```
+
+whence 参数含义如下：
+
+- SEEK_SET: 设置偏移为 文件开头 +/- offset
+- SEEK_CUR: 设置偏移为 当前位置 +/- offset
+- SEEK_END: 设置偏移为 文件结尾 +/- offset
+- SEEK_DATA: 将偏移量移动到下一个包含数据的位置，该位置大于等于 offset 。如果 offset 已经指向数据，那么将偏移量设置为 offset 。
+- SEEK_HOLE: 将偏移量移动到下一个包含空洞的位置，该位置大于等于 offset 。如果 offset 已经指向空洞，那么将偏移量设置为 offset 。如果在 offset 之后没有任何空洞，那么偏移量设置为文件的最末尾。（文件末尾也被视为是一个空洞，因为它同样以 0 结尾。）
