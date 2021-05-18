@@ -50,3 +50,14 @@ whence 参数含义如下：
 - SEEK_END: 设置偏移为 文件结尾 +/- offset
 - SEEK_DATA: 将偏移量移动到下一个包含数据的位置，该位置大于等于 offset 。如果 offset 已经指向数据，那么将偏移量设置为 offset 。
 - SEEK_HOLE: 将偏移量移动到下一个包含空洞的位置，该位置大于等于 offset 。如果 offset 已经指向空洞，那么将偏移量设置为 offset 。如果在 offset 之后没有任何空洞，那么偏移量设置为文件的最末尾。（文件末尾也被视为是一个空洞，因为它同样以 0 结尾。）
+
+## Dup And Dup2
+
+两个函数定义如下:
+
+```CPP
+int dup(int oldfd);
+int dup2(int oldfd, int newfd);
+```
+
+dup 是复制 oldfd 给一个新的 newfd，newfd 的值是当前最小可用的 fd，dup2 是复制 oldfd 到指定到 newfd，但是如果 newfd 的值存在的话就会直接返回，如果 oldfd 是个无效的值那么就会产生一个错误
