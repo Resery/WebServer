@@ -31,7 +31,7 @@ typedef struct {
 static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
 
 int main(int argc, char **argv) {
-    int listenfd, *connfd;
+    int listenfd, connfd;
     pthread_t tid;
     char hostname[MAXLINE], port[MAXLINE];
     socklen_t clientlen;
@@ -45,8 +45,7 @@ int main(int argc, char **argv) {
     listenfd = Open_listenfd(argv[1]);
     while (1) {
         clientlen = sizeof(clientaddr);
-        connfd = Malloc(sizeof(int));
-        *connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
+        connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
         Getnameinfo((SA *) &clientaddr, clientlen, hostname, MAXLINE, port, MAXLINE, 0);
         printf("Accepted connection from (%s, %s)\n", hostname, port);
     }
