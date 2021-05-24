@@ -11,13 +11,15 @@
 #define HEADER_VALUE_MAX_LEN 64
 
 void doit(int connfd);
+void * thread(void * vargp);
 int send_to_server(char * method, char * uri, char * version, char * host, char * port);
 
 /* You won't lose style points for including this long line in your code */
 static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
 
 int main(int argc, char **argv) {
-    int listenfd, connfd;
+    int listenfd;
+    pthread_t tid;
 
     struct sockaddr_in clientaddr;
     struct sockaddr_in serveraddr;
@@ -54,17 +56,24 @@ int main(int argc, char **argv) {
     listen(listenfd, 4);
 
     while(1) {
-        if((connfd = accept(listenfd, (struct sockaddr *)&clientaddr, &clientlen)) < 0) {
-            fprintf(stderr, "Accept Socket Failed");
-            exit(0);
-        }
+        int * connfd = (int *)malloc(sizeof(int));
+        *connfd = accept(listenfd, (struct sockaddr *)&clientaddr, &clientlen);
 
         printf("Connect From %s : %u\n",
                 inet_ntop(AF_INET, &clientaddr.sin_addr, Ip, MAXLINE),
                 ntohs(clientaddr.sin_port));
-        
-        doit(connfd);
+
+        pthread_create(&tid, NULL, thread, connfd);
     }
+}
+
+void * thread(void * vargp) {
+    int connfd = *((int *)vargp);
+    pthread_detach(pthread_self());
+    free(vargp);
+    doit(connfd);
+    close(connfd);
+    return NULL;
 }
 
 void doit(int connfd) {
@@ -94,7 +103,7 @@ void doit(int connfd) {
     printf("The Request URI Is %s\n", uri);
     printf("The Request Version Is %s\n", version);
     printf("The Request Host Is %s\n", host);
-    printf("The Request Host Port Is %s\n", port);
+    printf("The Request Host Port Is %s\n\n", port);
 
     serverfd = send_to_server(method, uri, version, host, port);
     
@@ -102,15 +111,13 @@ void doit(int connfd) {
     while((n = read(serverfd, buf, MAXLINE))) {
         write(connfd, buf, n);
     }
-
-    close(connfd);
 }
 
 int send_to_server(char * method, char * uri, char * version, char * host, char * port) {
     int serverfd;
     struct sockaddr_in serveraddr;
     struct hostent * htp;
-    char * request = malloc(0);
+    char * request;
     // char buf[MAXLINE], * buf_head = buf;
 
     memset(&serveraddr, 0, sizeof(serveraddr));
@@ -141,8 +148,6 @@ int send_to_server(char * method, char * uri, char * version, char * host, char 
     sprintf(request, "%s%s\r\n", request, user_agent_hdr);
 
     write(serverfd, request, MAXLINE);
-
-    free(request);
 
     return serverfd;
 }
