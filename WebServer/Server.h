@@ -26,6 +26,9 @@ class Server {
 private:
     sockaddr_in ServerAddr;
 
+    // To make sure nobody can invoke copy and copy assignment
+    Server& operator=(const Server&);
+
 public:
     /**
      * @brief: Init the object with the server port, defualt protocol is TCP(AF_INET),
@@ -33,6 +36,8 @@ public:
      * @todo: Support specified the www path
      */
     Server(char * Port);
+    Server(const Server& server);
+
     /**
      * @brief: Free the resource but destructor will do nothing in this version
      * @todo:
@@ -43,10 +48,10 @@ public:
     /**
      * @brief: To get the server information
      */
-    sockaddr_in GetServerAddr();
+    const sockaddr_in GetServerAddr();
 
     /**
      * @brief: Print the server information
      */
-    void PrintServerInfo();
+    const void PrintServerInfo();
 };

@@ -14,6 +14,7 @@
 #include <string>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/mman.h>
@@ -32,18 +33,35 @@
 class HTTPHandler {
 private:
     // The connect client's fd
-    int ConnFd;
-    char * FileName;
-    char * FileType;
-    char * CgiArgs;
+    int ClientFd;
+
+    bool Static;
+
+    std::string Method;
+    std::string Path;
+    std::string Version;
+
+    std::string CgiArgs;
+    std::string FileName;
+    std::string FileType;
+
+    std::string ResponseBody;
 
     // Support Error Type
     enum ErrorType {
-        ErrorNotFound = 404,
-        ErrorImplemented = 501
+        ErrSuccess = 0,
+
+        ErrSendResponseFail,
+
+        ErrForBid,
+        ErrNotFound,
+
+        ErrImplemented,
+        ErrVersionNotSupported
     };
 
-    // Support Request Method
+    // Make sure nobody can invoke copy and copy assignment
+    HTTPHandler& operator=(const HTTPHandler&);
 
 public:
     /**
@@ -51,6 +69,7 @@ public:
      * @param: Fd       The Client File Description
      */
     HTTPHandler(int Fd);
+    HTTPHandler(const HTTPHandler&);
 
     /**
      * @brief: Free the resource but destructor will do nothing at this version
@@ -60,14 +79,54 @@ public:
     ~HTTPHandler();
 
     /**
-     * @brief: Get the ConnFd
+     * @brief: Get the ClientFd
      */
-    int GetConnFd();
+    int GetClientFd();
+
+    /**
+     * @brief: Get Method
+     */
+    std::string & GetMethod();
+
+    /**
+     * @brief: Get Path
+     */
+    std::string & GetPath();
+
+    /**
+     * @brief: Get Version
+     */
+    std::string & GetVersion();
+
+    /**
+     * @brief: Get Response Body
+     */
+    std::string & GetResponseBody();
+
+    /**
+     * @brief:
+     */
+    std::string & GetFileType();
 
     /**
      * @brief: Get the request file type
      */
-    void GetFileType(char * FileName);
+    void ParseFileType(const std::string & FN);
+
+    /**
+     * @brief: HttpRead is a read wrapper that can support more effictive I/O
+     */
+    int HttpRead(int ClientFd, void * Buf, size_t Count);
+
+    /**
+     * @brief: HttpWrite is a write wrapper that can support more effictive I/O
+     */
+    int HttpWrite(int ClientFd, const void * Buf, size_t Count);
+
+    /**
+     * @brief: Read the request from client
+     */
+    void ReadRequest(int ClientFd, std::string & Request);
 
     /**
      * @brief: Parse the request to get the message such as method, uri, version, header, etc
@@ -80,15 +139,7 @@ public:
      * @param: Clientfd    The Client File Description
      * @param: Path        The path of request resource
      */
-    void ParseUri(int ClientFd, char * Path);
-
-    /**
-     * @brief: To check the request method whether or not supported
-     * @param: Method     The request method
-     */
-    /*
-    void CheckMethod(int ClientFd, char * Method);
-    */
+    void ParseUri(int ClientFd, const std::string & Path);
 
     /**
      * @brief: Send response packet to the client
@@ -114,7 +165,35 @@ public:
      * @param: ClientFd     The Client File Description 
      * @param: ErrorCode    The error code of this mistake
      */
-    void ClientError(int ClientFd, ErrorType ErrorCode);
+    void HandleError(int ClientFd, ErrorType ErrorCode);
+
+    /**
+     * @brief: Check the request whether or not vaild
+     * @param: Method      The client request method
+     * @param: Path        The client request path
+     * @param: Version     The client request HTTP Version
+     */
+    HTTPHandler::ErrorType Check(const std::string & Method, 
+                                    const std::string & Path,
+                                    const std::string &Version);
+
+    /**
+     * @brief: Check if this method is supported
+     * @param: Method       The clinet request method
+     */
+    HTTPHandler::ErrorType CheckMethod(const std::string & Method);
+
+    /**
+     * @brief: Check the path whether or not supported
+     * @param: Path         The client request path
+     */
+    HTTPHandler::ErrorType CheckPath(const std::string & Path);
+    
+    /**
+     * @brief: Check the version whether or nor supported
+     * @param: Version      The client request HTTP Version
+     */
+    HTTPHandler::ErrorType CheckVersion(const std::string & Version);
 };
 
 #endif

@@ -50,6 +50,11 @@ int main(int argc, char **argv) {
         std::clog << inet_ntoa(ClientInfo.sin_addr) << " : ";
         std::clog << ntohs(ClientInfo.sin_port) << std::endl;
 
-        Handler.ParseRequest(Handler.GetConnFd());
+        int ClientFd = Handler.GetClientFd();
+
+        Handler.ParseRequest(ClientFd);
+        Handler.ParseUri(ClientFd, Handler.GetPath());
+        Handler.HandleError(ClientFd, Handler.Check(Handler.GetMethod(), Handler.GetPath(), Handler.GetVersion()));
+        Handler.SendResponse(ClientFd, "200", "OK", Handler.GetFileType(), Handler.GetResponseBody());
     }
 }

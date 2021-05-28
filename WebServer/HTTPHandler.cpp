@@ -3,23 +3,102 @@
 #define MAXLINE 8192
 
 HTTPHandler::HTTPHandler(int Fd) {
-    ConnFd = Fd;
-    FileName = (char *)malloc(MAXLINE);
-    FileType = (char *)malloc(MAXLINE);
-    CgiArgs = (char *)malloc(MAXLINE);
+    ClientFd = Fd;
+    Static = true;
 }
+
+HTTPHandler::HTTPHandler(const HTTPHandler & httphandler) : 
+ClientFd(httphandler.ClientFd),
+Method(httphandler.Method),
+Path(httphandler.Path),
+Version(httphandler.Version),
+CgiArgs(httphandler.CgiArgs),
+FileName(httphandler.FileName),
+FileType(httphandler.FileType)
+{}
 
 HTTPHandler::~HTTPHandler() {
-    free(FileName);
-    free(FileType);
-    free(CgiArgs);
 }
 
-int HTTPHandler::GetConnFd() {
-    return ConnFd;
+int HTTPHandler::GetClientFd() {
+    return ClientFd;
 }
 
-void HTTPHandler::SendResponse(int ClientFd, const std::string & ResponseCode, const std::string & ResponseMsg,
+std::string & HTTPHandler::GetMethod() {
+    return Method;
+}
+
+std::string & HTTPHandler::GetPath() {
+    return Path; 
+}
+
+std::string & HTTPHandler::GetVersion() {
+    return Version;
+}
+
+std::string & HTTPHandler::GetResponseBody() {
+    return ResponseBody;
+}
+
+std::string & HTTPHandler::GetFileType() {
+    return FileType;
+}
+
+int HTTPHandler::HttpRead(int CFd, void * Buf, size_t Count) {
+    char * TmpBuf = (char *)Buf;
+    size_t LeftNum = Count; 
+    size_t ReadNum = 0;
+
+    while (LeftNum > 0) {
+        ssize_t TmpRead = 0;
+
+        TmpRead = recv(CFd, TmpBuf, LeftNum, MSG_DONTWAIT);
+        // TmpRead = read(CFd, TmpBuf, LeftNum);
+
+        if (TmpRead < 0) {
+            if (errno == EINTR) TmpRead = 0;
+            else if (errno == EAGAIN) return ReadNum;
+            else return -1;
+        }
+
+        if (TmpRead == 0) break;
+
+        ReadNum += TmpRead;
+        TmpBuf += TmpRead;
+        LeftNum -= TmpRead;
+    }
+
+    return ReadNum;
+}
+
+int HTTPHandler::HttpWrite(int CFd, const void * Buf, size_t Count) {
+    char * TmpBuf = (char *)Buf;
+    size_t LeftNum = Count; 
+    size_t WriteNum = 0;
+
+    while (LeftNum > 0) {
+        ssize_t TmpWrite = 0;
+
+        TmpWrite = send(CFd, TmpBuf, LeftNum, 0);
+        // TmpWrite = write(CFd, TmpBuf, LeftNum);
+
+        if (TmpWrite < 0) {
+            if (errno == EINTR) TmpWrite = 0;
+            else if (errno == EAGAIN) return WriteNum;
+            else return -1;
+        }
+
+        if (TmpWrite == 0) break;
+
+        WriteNum += TmpWrite;
+        TmpBuf += TmpWrite;
+        LeftNum -= TmpWrite;
+    }
+
+    return WriteNum;
+}
+
+void HTTPHandler::SendResponse(int CFd, const std::string & ResponseCode, const std::string & ResponseMsg,
                         const std::string & ResponseBodyType,const std::string & ResponseBody) {
     std::stringstream Stream;
     Stream << "HTTP/1.1" << " " << ResponseCode << " " << ResponseMsg << "\r\n";
@@ -32,13 +111,13 @@ void HTTPHandler::SendResponse(int ClientFd, const std::string & ResponseCode, c
 
     std::string && Response = Stream.str();
 
-    write(ClientFd, Response.c_str(), Response.size());
+    write(CFd, Response.c_str(), Response.size());
 
     std::clog << "================================== Response Packet ===================================" << std::endl;
     std::clog << Response.c_str() << std::endl;
 }
 
-void HTTPHandler::SendErrorResponse(int ClientFd, const std::string & ErrorCode, const std::string & ErrorMsg) {
+void HTTPHandler::SendErrorResponse(int CFd, const std::string & ErrorCode, const std::string & ErrorMsg) {
     std::string ErrorString = ErrorCode + " " + ErrorMsg;
     std::string ResponseBody = 
                 "<html>"
@@ -47,107 +126,168 @@ void HTTPHandler::SendErrorResponse(int ClientFd, const std::string & ErrorCode,
                     "<hr><em> Resery's Web HTTPHandler</em>"
                 "</body>"
                 "</html>";
-    SendResponse(ClientFd, ErrorCode, ErrorMsg, "text/html", ResponseBody);
+    SendResponse(CFd, ErrorCode, ErrorMsg, "text/html", ResponseBody);
 }
 
-void HTTPHandler::ClientError(int ClientFd, HTTPHandler::ErrorType ErrorCode) {
+void HTTPHandler::HandleError(int CFd, HTTPHandler::ErrorType ErrorCode) {
     std::string ErrorMsg;
     switch (ErrorCode) {
-    case ErrorNotFound:
-        SendErrorResponse(ClientFd, "404", "Not Found");
+    case ErrSuccess:
         break;
-    case ErrorImplemented:
-        SendErrorResponse(ClientFd, "501", "Not Implemented");
+    case ErrForBid:
+        SendErrorResponse(CFd, "403", "ForBid");
+        break;
+    case ErrSendResponseFail:
+        std::clog << "Send Response Failed" << std::endl;
+        break;
+    case ErrNotFound:
+        SendErrorResponse(CFd, "404", "Not Found");
+        break;
+    case ErrImplemented:
+        SendErrorResponse(CFd, "501", "Not Implemented");
+        break;
+    case ErrVersionNotSupported:
+        SendErrorResponse(CFd, "505", "Version Not Supported");
+        break;
     }
 }
 
-void HTTPHandler::GetFileType(char * FileName) {
-    if (strstr(FileName, ".html"))
-        strcpy(FileType, "text/html");
-    else if (strstr(FileName, ".gif"))
-        strcpy(FileType, "image/gif");
-    else if (strstr(FileName, ".jpg"))
-        strcpy(FileType, "image/jpg");
-    else if (strstr(FileName, ".png"))
-        strcpy(FileType, "image/png");
+void HTTPHandler::ParseFileType(const std::string & FN) {
+    if (FN.find(".html") != 0)
+        FileType = "text/html";
+    else if (FN.find(".gif") != 0)
+        FileType = "image/gif";
+    else if (FN.find(".jpg") != 0)
+        FileType = "image/jpg";
+    else if (FN.find(".png") != 0)
+        FileType = "image/png";
     else
-        strcpy(FileType, "text/plain");
+        FileType = "text/plain";
 }
 
-void HTTPHandler::ParseUri(int ConnFd, char * Path) {
-    char * ptr;
-    struct stat SBuf;
-    bool IsStaic = true;
+void HTTPHandler::ReadRequest(int CFd, std::string & Request) {
+    char Buffer[MAXLINE];
 
-    if (!strstr(Path, "cgi-bin")) {
-        strcpy(CgiArgs, "");
-        strcpy(FileName, ".");
-        strcat(FileName, Path);
-        
-        if (Path[strlen(Path) - 1] == '/')
-            strcat(FileName, "home.html");
-    } else {
-        IsStaic = false;
-        ptr = index(Path, '?');
-        if (ptr) {
-            strcpy(CgiArgs, ptr + 1);
-            *ptr = '\0';
-        } else
-            strcpy(CgiArgs, "");
-        strcpy(FileName, ".");
-        strcpy(FileName, Path);
+    while (1) {
+        ssize_t Len = HttpRead(CFd, Buffer, MAXLINE);
+
+        if (Len < 0) return;
+        else if (Len == 0) {
+            if (errno == EAGAIN) return;
+            assert(errno == 0 || errno == ENOENT);
+            return;
+        }
+
+        std::string RequestBuf(Buffer, Buffer + Len);
+        Request += RequestBuf;
     }
-
-    if (stat(FileName, &SBuf) < 0)
-        SendErrorResponse(ConnFd, "404", "Not Found");
     
-    if (IsStaic) {
-        if (!(S_ISREG(SBuf.st_mode)) || !(S_IRUSR & SBuf.st_mode))
-            SendErrorResponse(ConnFd, "403", "Forbidden");
-        GetFileType(FileName);
-        int SrcFd = open(FileName, O_RDONLY);
-        void * Addr = mmap(nullptr, SBuf.st_size, PROT_READ, MAP_PRIVATE, SrcFd, 0);
-        char * FileDataPtr = static_cast<char *>(Addr);
-        std::string ResponseBody(FileDataPtr, FileDataPtr + SBuf.st_size);
-        SendResponse(ConnFd, "200", "OK", FileType, ResponseBody);
-        close(SrcFd);
-        munmap(Addr, SBuf.st_size);
-    } else {
-        if (!(S_ISREG(SBuf.st_mode)) || !(S_IXUSR & SBuf.st_mode))
-            SendErrorResponse(ConnFd, "403", "Forbidden");
-    }
 }
 
-void HTTPHandler::ParseRequest(int ConnFd) {
+void HTTPHandler::ParseRequest(int CFd) {
     char Buf[MAXLINE];
-    char Method[MAXLINE], Path[MAXLINE], Version[MAXLINE];
-    char Header[MAXLINE];
 
-    read(ConnFd, Buf, MAXLINE);
+    int Len = read(CFd, Buf, MAXLINE);
 
-    sscanf(Buf, "%s %s %s\r\n", Method, Path, Version);
+    std::string Request(Buf, Buf + Len);
+    size_t RequestLineEnd, MethodEnd, PathEnd, HeaderLineEnd;
 
-    if (strcmp(Method, "GET") != 0) {
-        ClientError(ConnFd, ErrorImplemented);
-        exit(0);
-    }
+    RequestLineEnd = Request.find("\r\n");
+
+    std::string && RequestLine = Request.substr(0, RequestLineEnd);
+
+    MethodEnd = RequestLine.find(' ');
+
+    Method = RequestLine.substr(0, MethodEnd);
+
+    MethodEnd++;
+    PathEnd = RequestLine.find(' ', MethodEnd);
+
+    Path = RequestLine.substr(MethodEnd, PathEnd - MethodEnd);
+
+    PathEnd++;
+    Version = RequestLine.substr(PathEnd, RequestLine.size() - PathEnd);
 
     std::clog << "[*] Method: " << Method << std::endl;
     std::clog << "[*] Path: " << Path << std::endl;
     std::clog << "[*] HTTP Version: " << Version << std::endl;
 
-    for (int i = 0; i < MAXLINE; i++) {
-        if (Buf[i] == '\r' && Buf[i + 1] == '\n') {
-            memcpy(Header, Buf + i + 2, MAXLINE);
-            break;
+    HeaderLineEnd = RequestLineEnd;
+
+    while (HeaderLineEnd < Request.size()) {
+        size_t LineEnd = HeaderLineEnd + 2;
+        HeaderLineEnd = Request.find("\r\n", LineEnd);
+        std::string HeaderTmp = Request.substr(LineEnd, HeaderLineEnd - LineEnd);
+        if (HeaderTmp.compare("") == 0) break;
+        std::clog << "[*] [" << HeaderTmp << "]" << std::endl;
+    }
+}
+
+void HTTPHandler::ParseUri(int CFd, const std::string & Path) {
+    if (Path.find("cgi-bin") != 0) {
+        CgiArgs = "";
+        FileName = "." + Path;
+        if (Path[Path.size() - 1] == '/')
+            FileName += "home.html";
+    } else {
+        Static = false;
+        size_t BinEnd = Path.find('?');
+        if (BinEnd) {
+            CgiArgs = Path.substr(BinEnd + 1, Path.size() - BinEnd);
+        } else {
+            CgiArgs = "";
         }
     }
+}
 
-    char * tmp = strtok(Header, "\r\n");
-    while (tmp != NULL) {
-        std::clog << "[*] [" << tmp << "]" << std::endl;
-        tmp = strtok(NULL, "\r\n");
+HTTPHandler::ErrorType HTTPHandler::Check(const std::string & method,
+                                            const std::string & path,
+                                            const std::string & version) {
+    HTTPHandler::ErrorType Errno = ErrSuccess;
+    if ((Errno = CheckMethod(method)) != ErrSuccess) return Errno;
+    else if ((Errno = CheckPath(path)) != ErrSuccess) return Errno;
+    else if ((Errno = CheckVersion(version)) != ErrSuccess) return Errno;
+    else return Errno;
+}
+
+HTTPHandler::ErrorType HTTPHandler::CheckMethod(const std::string & method) {
+    if (method.compare("GET") != 0 &&
+        method.compare("POST") != 0 &&
+        method.compare("HEAD") != 0)
+        return ErrImplemented;
+    
+    return ErrSuccess;
+}
+
+HTTPHandler::ErrorType HTTPHandler::CheckPath(const std::string & path) {
+    struct stat SBuf;
+
+    if (stat(FileName.c_str(), &SBuf) < 0)
+        return ErrNotFound;
+    
+    if (Static) {
+        if (!(S_ISREG(SBuf.st_mode)) || !(S_IRUSR & SBuf.st_mode))
+            return ErrForBid;
+        ParseFileType(FileName);
+        int SrcFd = open(FileName.c_str(), O_RDONLY);
+        void * Addr = mmap(nullptr, SBuf.st_size, PROT_READ, MAP_PRIVATE, SrcFd, 0);
+        char * FileDataPtr = static_cast<char *>(Addr);
+        std::string Tmp(FileDataPtr, FileDataPtr + SBuf.st_size); 
+        ResponseBody = Tmp;
+        close(SrcFd);
+        munmap(Addr, SBuf.st_size);
+    } else {
+        if (!(S_ISREG(SBuf.st_mode)) || !(S_IXUSR & SBuf.st_mode))
+            return ErrForBid;
     }
 
-    ParseUri(ConnFd, Path);
+    return ErrSuccess;
+}
+
+HTTPHandler::ErrorType HTTPHandler::CheckVersion(const std::string & version) {
+    if (version.compare("HTTP/1.0") != 0 &&
+        version.compare("HTTP/1.1") != 0)
+        return ErrVersionNotSupported;
+
+    return ErrSuccess;
 }
