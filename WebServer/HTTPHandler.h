@@ -32,20 +32,23 @@
  */
 class HTTPHandler {
 private:
-    // The connect client's fd
-    int ClientFd;
+    int clientfd_;
 
-    bool Static;
+    int mainstate_;
 
-    std::string Method;
-    std::string Path;
-    std::string Version;
+    int followstate_;
 
-    std::string CgiArgs;
-    std::string FileName;
-    std::string FileType;
+    bool static_;
 
-    std::string ResponseBody;
+    std::string method_;
+    std::string path_;
+    std::string version_;
+
+    std::string cgiargs_;
+    std::string filename_;
+    std::string filetype_;
+
+    std::string responsebody_;
 
     // Support Error Type
     enum ErrorType {
@@ -57,13 +60,45 @@ private:
         ErrNotFound,
 
         ErrImplemented,
-        ErrVersionNotSupported
+        ErrVersionNotSupported,
+        ErrInternalError,
+
+        ErrNoRequest,
+        ErrGetRequest
+    };
+
+    enum RequesetMethod {
+        Get,
+        Post,
+        Head
+    };
+
+    enum MainState {
+        CheckRequestLine,
+        CheckHeader,
+        CheckBody
+    };
+
+    enum FollowState {
+        LineOk,
+        LineBad,
+        LineOpen
     };
 
     // Make sure nobody can invoke copy and copy assignment
     HTTPHandler& operator=(const HTTPHandler&);
 
 public:
+    char buf_[4096];
+
+    unsigned int prevPos;
+    unsigned int currentPos;
+
+    unsigned int bufSize;
+
+    unsigned int contentLength;
+    bool longConnect;
+
     /**
      * @brief: Init the object with the Client File Description
      * @param: Fd       The Client File Description
@@ -194,6 +229,21 @@ public:
      * @param: Version      The client request HTTP Version
      */
     HTTPHandler::ErrorType CheckVersion(const std::string & Version);
+
+    HTTPHandler::FollowState ParseLine();
+
+    HTTPHandler::ErrorType ParseRequestLine(std::string & requestline);
+
+    HTTPHandler::ErrorType ParseHeader(std::string & requestheader);
+
+    HTTPHandler::ErrorType ParseBody(std::string & requestbody);
+
+    // char * GetLine() { return buf_ + prevPos; }
+    std::string GetLine() { return std::string(buf_ + prevPos); };
+
+    HTTPHandler::ErrorType MainStateMachine();
+
+
 };
 
 #endif

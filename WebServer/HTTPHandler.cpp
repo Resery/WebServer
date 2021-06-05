@@ -3,45 +3,57 @@
 #define MAXLINE 8192
 
 HTTPHandler::HTTPHandler(int Fd) {
-    ClientFd = Fd;
-    Static = true;
+    clientfd_ = Fd;
+    static_ = true;
+    mainstate_ = CheckRequestLine;
+    followstate_ = LineOk;
+    prevPos = 0;
+    currentPos = 0;
+    longConnect = false;
+    contentLength = 0;
 }
 
 HTTPHandler::HTTPHandler(const HTTPHandler & httphandler) : 
-ClientFd(httphandler.ClientFd),
-Method(httphandler.Method),
-Path(httphandler.Path),
-Version(httphandler.Version),
-CgiArgs(httphandler.CgiArgs),
-FileName(httphandler.FileName),
-FileType(httphandler.FileType)
+clientfd_(httphandler.clientfd_),
+mainstate_(httphandler.mainstate_),
+followstate_(httphandler.followstate_),
+method_(httphandler.method_),
+path_(httphandler.path_),
+version_(httphandler.version_),
+cgiargs_(httphandler.cgiargs_),
+filename_(httphandler.filename_),
+filetype_(httphandler.filetype_),
+prevPos(httphandler.prevPos),
+currentPos(httphandler.currentPos),
+bufSize(httphandler.bufSize),
+longConnect(httphandler.longConnect)
 {}
 
 HTTPHandler::~HTTPHandler() {
 }
 
 int HTTPHandler::GetClientFd() {
-    return ClientFd;
+    return clientfd_;
 }
 
 std::string & HTTPHandler::GetMethod() {
-    return Method;
+    return method_;
 }
 
 std::string & HTTPHandler::GetPath() {
-    return Path; 
+    return path_; 
 }
 
 std::string & HTTPHandler::GetVersion() {
-    return Version;
+    return version_;
 }
 
 std::string & HTTPHandler::GetResponseBody() {
-    return ResponseBody;
+    return responsebody_;
 }
 
 std::string & HTTPHandler::GetFileType() {
-    return FileType;
+    return filetype_;
 }
 
 int HTTPHandler::HttpRead(int CFd, void * Buf, size_t Count) {
@@ -52,7 +64,8 @@ int HTTPHandler::HttpRead(int CFd, void * Buf, size_t Count) {
     while (LeftNum > 0) {
         ssize_t TmpRead = 0;
 
-        TmpRead = recv(CFd, TmpBuf, LeftNum, MSG_DONTWAIT);
+        // TmpRead = recv(CFd, TmpBuf, LeftNum, 0);
+        TmpRead = recv(CFd, TmpBuf, LeftNum, 0);
         // TmpRead = read(CFd, TmpBuf, LeftNum);
 
         if (TmpRead < 0) {
@@ -102,7 +115,10 @@ void HTTPHandler::SendResponse(int CFd, const std::string & ResponseCode, const 
                         const std::string & ResponseBodyType,const std::string & ResponseBody) {
     std::stringstream Stream;
     Stream << "HTTP/1.1" << " " << ResponseCode << " " << ResponseMsg << "\r\n";
-    Stream << "Connection: " << "Close" << "\r\n";
+    if (longConnect)
+        Stream << "Connection: keep-alive" << "\r\n";
+    else
+        Stream << "Connection: close" << "\r\n";
     Stream << "HTTPHandler: WebHTTPHandler/1.1" << "\r\n";
     Stream << "Content-length: " << ResponseBody.size() << "\r\n";
     Stream << "Content-type: " << ResponseBodyType << "\r\n";
@@ -111,7 +127,7 @@ void HTTPHandler::SendResponse(int CFd, const std::string & ResponseCode, const 
 
     std::string && Response = Stream.str();
 
-    write(CFd, Response.c_str(), Response.size());
+    send(CFd, Response.c_str(), Response.size(), MSG_SYN);
 
     std::clog << "================================== Response Packet ===================================" << std::endl;
     std::clog << Response.c_str() << std::endl;
@@ -143,26 +159,29 @@ void HTTPHandler::HandleError(int CFd, HTTPHandler::ErrorType ErrorCode) {
     case ErrNotFound:
         SendErrorResponse(CFd, "404", "Not Found");
         break;
+    case ErrInternalError:
+        SendErrorResponse(CFd, "500", "Internal Error");
+        break;
     case ErrImplemented:
         SendErrorResponse(CFd, "501", "Not Implemented");
         break;
     case ErrVersionNotSupported:
-        SendErrorResponse(CFd, "505", "Version Not Supported");
+        SendErrorResponse(CFd, "505", "version_ Not Supported");
         break;
     }
 }
 
 void HTTPHandler::ParseFileType(const std::string & FN) {
     if (FN.find(".html") != 0)
-        FileType = "text/html";
+        filetype_ = "text/html";
     else if (FN.find(".gif") != 0)
-        FileType = "image/gif";
+        filetype_ = "image/gif";
     else if (FN.find(".jpg") != 0)
-        FileType = "image/jpg";
+        filetype_ = "image/jpg";
     else if (FN.find(".png") != 0)
-        FileType = "image/png";
+        filetype_ = "image/png";
     else
-        FileType = "text/plain";
+        filetype_ = "text/plain";
 }
 
 void HTTPHandler::ReadRequest(int CFd, std::string & Request) {
@@ -190,7 +209,7 @@ void HTTPHandler::ParseRequest(int CFd) {
     int Len = read(CFd, Buf, MAXLINE);
 
     std::string Request(Buf, Buf + Len);
-    size_t RequestLineEnd, MethodEnd, PathEnd, HeaderLineEnd;
+    size_t RequestLineEnd, MethodEnd, path_End, HeaderLineEnd;
 
     RequestLineEnd = Request.find("\r\n");
 
@@ -198,19 +217,19 @@ void HTTPHandler::ParseRequest(int CFd) {
 
     MethodEnd = RequestLine.find(' ');
 
-    Method = RequestLine.substr(0, MethodEnd);
+    method_ = RequestLine.substr(0, MethodEnd);
 
     MethodEnd++;
-    PathEnd = RequestLine.find(' ', MethodEnd);
+    path_End = RequestLine.find(' ', MethodEnd);
 
-    Path = RequestLine.substr(MethodEnd, PathEnd - MethodEnd);
+    path_ = RequestLine.substr(MethodEnd, path_End - MethodEnd);
 
-    PathEnd++;
-    Version = RequestLine.substr(PathEnd, RequestLine.size() - PathEnd);
+    path_End++;
+    version_ = RequestLine.substr(path_End, RequestLine.size() - path_End);
 
-    std::clog << "[*] Method: " << Method << std::endl;
-    std::clog << "[*] Path: " << Path << std::endl;
-    std::clog << "[*] HTTP Version: " << Version << std::endl;
+    std::clog << "[*] Method: " << method_ << std::endl;
+    std::clog << "[*] path_: " << path_ << std::endl;
+    std::clog << "[*] HTTP version_: " << version_ << std::endl;
 
     HeaderLineEnd = RequestLineEnd;
 
@@ -223,19 +242,19 @@ void HTTPHandler::ParseRequest(int CFd) {
     }
 }
 
-void HTTPHandler::ParseUri(int CFd, const std::string & Path) {
-    if (Path.find("cgi-bin") != 0) {
-        CgiArgs = "";
-        FileName = "." + Path;
-        if (Path[Path.size() - 1] == '/')
-            FileName += "home.html";
+void HTTPHandler::ParseUri(int CFd, const std::string & path_) {
+    if (path_.find("cgi-bin") != 0) {
+        cgiargs_ = "";
+        filename_ = "." + path_;
+        if (path_[path_.size() - 1] == '/')
+            filename_ += "home.html";
     } else {
-        Static = false;
-        size_t BinEnd = Path.find('?');
+        static_ = false;
+        size_t BinEnd = path_.find('?');
         if (BinEnd) {
-            CgiArgs = Path.substr(BinEnd + 1, Path.size() - BinEnd);
+            cgiargs_ = path_.substr(BinEnd + 1, path_.size() - BinEnd);
         } else {
-            CgiArgs = "";
+            cgiargs_ = "";
         }
     }
 }
@@ -261,19 +280,34 @@ HTTPHandler::ErrorType HTTPHandler::CheckMethod(const std::string & method) {
 
 HTTPHandler::ErrorType HTTPHandler::CheckPath(const std::string & path) {
     struct stat SBuf;
+    
+    if (path_.find("cgi-bin") != 0) {
+        cgiargs_ = "";
+        filename_ = "." + path_;
+        if (path_[path_.size() - 1] == '/')
+            filename_ += "home.html";
+    } else {
+        static_ = false;
+        size_t BinEnd = path_.find('?');
+        if (BinEnd) {
+            cgiargs_ = path_.substr(BinEnd + 1, path_.size() - BinEnd);
+        } else {
+            cgiargs_ = "";
+        }
+    }
 
-    if (stat(FileName.c_str(), &SBuf) < 0)
+    if (stat(filename_.c_str(), &SBuf) < 0)
         return ErrNotFound;
     
-    if (Static) {
+    if (static_) {
         if (!(S_ISREG(SBuf.st_mode)) || !(S_IRUSR & SBuf.st_mode))
             return ErrForBid;
-        ParseFileType(FileName);
-        int SrcFd = open(FileName.c_str(), O_RDONLY);
+        ParseFileType(filename_);
+        int SrcFd = open(filename_.c_str(), O_RDONLY);
         void * Addr = mmap(nullptr, SBuf.st_size, PROT_READ, MAP_PRIVATE, SrcFd, 0);
         char * FileDataPtr = static_cast<char *>(Addr);
         std::string Tmp(FileDataPtr, FileDataPtr + SBuf.st_size); 
-        ResponseBody = Tmp;
+        responsebody_ = Tmp;
         close(SrcFd);
         munmap(Addr, SBuf.st_size);
     } else {
@@ -290,4 +324,110 @@ HTTPHandler::ErrorType HTTPHandler::CheckVersion(const std::string & version) {
         return ErrVersionNotSupported;
 
     return ErrSuccess;
+}
+
+HTTPHandler::FollowState HTTPHandler::ParseLine() {
+    char tmp;
+
+    // currentPos 记录现在遍历到的位置，bufSize 记录读取到的内容的大小
+    for (; currentPos < bufSize; currentPos++) {
+        tmp = buf_[currentPos];
+        if (tmp == '\r') {
+            // 检测 \r 之后是否还有数据如果没有数据说明数据不完整，则返回 LineOpen
+            if (currentPos + 1 == bufSize) return LineOpen;
+            else if (buf_[currentPos + 1] == '\n') {
+                buf_[currentPos++] = '\0';
+                buf_[currentPos++] = '\0';
+                return LineOk;
+            }
+            return LineBad;
+        } else if (tmp == '\n') {
+            if (currentPos > 1 && buf_[currentPos - 1] == '\r') {
+                buf_[currentPos - 1] = '\0';
+                buf_[currentPos++] = '\0';
+                return LineOk;
+            }
+            return LineBad;
+        } else if (currentPos == bufSize - 1 && tmp != '\r') {
+            currentPos++;
+            return LineOk;
+        }
+    }
+
+    return LineOpen;
+}
+
+HTTPHandler::ErrorType HTTPHandler::ParseRequestLine(std::string & requestline) {
+    int methodPos = requestline.find(' ');
+    method_ = requestline.substr(0, methodPos);
+
+    int pathPos = requestline.find(' ', methodPos + 1);
+    path_ = requestline.substr(methodPos + 1, pathPos - methodPos - 1);
+
+    int versionPos = requestline.find('\r', pathPos + 1);
+    version_ = requestline.substr(pathPos + 1, versionPos - pathPos - 1);
+
+    mainstate_ = CheckHeader;
+
+    return Check(method_, path_, version_);
+}
+
+HTTPHandler::ErrorType HTTPHandler::ParseHeader(std::string & requestheader) {
+    int pos = requestheader.find(' ');
+    std::string field = requestheader.substr(0, pos);
+
+    if (requestheader == "") {
+        if (contentLength != 0) {
+            mainstate_ = CheckBody;
+            return ErrNoRequest;
+        }
+        return ErrGetRequest;
+    } else if ((field.compare("Connection:") == 0)) {
+        longConnect = requestheader.substr(pos + 1, requestheader.size() - pos).compare("keep-alive") == 0 ?
+                        true : false;
+    } else if ((field.compare("Content-Length:") == 0)) {
+        int pos = requestheader.find(' ');
+        contentLength = atoi(requestheader.substr(pos + 1, requestheader.size() - pos).c_str());
+    }
+
+    return ErrNoRequest;
+}
+
+HTTPHandler::ErrorType HTTPHandler::ParseBody(std::string & requestbody) {
+    if (currentPos != bufSize || buf_[currentPos] != '\0') {
+        return ErrGetRequest;
+    }
+
+    return ErrNoRequest;
+}
+
+HTTPHandler::ErrorType HTTPHandler::MainStateMachine() {
+    HTTPHandler::ErrorType ret = ErrSuccess;
+    std::string line;
+
+    while ((mainstate_ == CheckBody && followstate_ == LineOk) || ((followstate_ = ParseLine() == LineOk))) {
+        std::string line = GetLine();
+        prevPos = currentPos;
+        std::clog << "[*] [" << line << "]" << std::endl;
+        switch (mainstate_) {
+        case CheckRequestLine:
+            if ((ret = ParseRequestLine(line)) != ErrSuccess)
+                return ret;
+            HandleError(clientfd_, Check(method_, path_, version_));
+            break;
+        case CheckHeader:
+            if ((ret = ParseHeader(line)) == ErrGetRequest)
+                SendResponse(clientfd_, "200", "OK", GetFileType(), GetResponseBody());
+            break;
+        case CheckBody:
+            if ((ret = ParseBody(line)) != ErrGetRequest)
+                SendResponse(clientfd_, "200", "OK", GetFileType(), GetResponseBody());
+            break;
+        default:
+            return ErrInternalError;
+            break;
+        }
+    }
+
+    return ret;
 }

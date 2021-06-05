@@ -2,15 +2,15 @@
 #include "Server.h"
 #include "HTTPHandler.h"
 
-int OpenListenFd(Server ServerInfo) {
+int OpenListenFd(Server serverinfo) {
     int listenfd = 0;
 
     if ((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
         return -1;
 
-    sockaddr_in Server = ServerInfo.GetServerAddr();
+    sockaddr_in server = serverinfo.GetServerAddr();
 
-    if (bind(listenfd, (const sockaddr *)&Server, sizeof(ServerInfo.GetServerAddr())) < 0)
+    if (bind(listenfd, (const sockaddr *)&server, sizeof(serverinfo.GetServerAddr())) < 0)
         return -1;
 
     listen(listenfd, 4);
@@ -24,37 +24,37 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    int ListenFd = 0;
-    int ConnFd = 0;
-    sockaddr_in ClientInfo;
-    socklen_t ClientLen = sizeof(ClientInfo);
-    Server ServerInfo = Server(argv[1]);
+    int listenfd = 0;
+    int connfd = 0;
+    sockaddr_in clientinfo;
+    socklen_t clientlen = sizeof(clientinfo);
+    Server serverinfo = Server(argv[1]);
 
-    if ((ListenFd = OpenListenFd(ServerInfo)) < 0) {
+    if ((listenfd = OpenListenFd(serverinfo)) < 0) {
         std::perror("Open Listenfd Failed");
         exit(EXIT_FAILURE);
     }
 
-    ServerInfo.PrintServerInfo();
+    serverinfo.PrintServerInfo();
 
-    while(1) {
-        if ((ConnFd = accept(ListenFd, (sockaddr *)&ClientInfo, &ClientLen)) < 0) {
+    while(true) {
+        if ((connfd = accept(listenfd, (sockaddr *)&clientinfo, &clientlen)) < 0) {
             std::perror("Accept Connect Failed");
             exit(EXIT_FAILURE);
         }
 
-        HTTPHandler Handler = HTTPHandler(ConnFd);
+        HTTPHandler * handler = new HTTPHandler(connfd);
 
         std::clog << "=================================== New Connection ===================================" << std::endl;
         std::clog << "[*] Connect From ";
-        std::clog << inet_ntoa(ClientInfo.sin_addr) << " : ";
-        std::clog << ntohs(ClientInfo.sin_port) << std::endl;
+        std::clog << inet_ntoa(clientinfo.sin_addr) << " : ";
+        std::clog << ntohs(clientinfo.sin_port) << std::endl;
 
-        int ClientFd = Handler.GetClientFd();
+        handler->bufSize = read(connfd, handler->buf_, MAXLINE);
 
-        Handler.ParseRequest(ClientFd);
-        Handler.ParseUri(ClientFd, Handler.GetPath());
-        Handler.HandleError(ClientFd, Handler.Check(Handler.GetMethod(), Handler.GetPath(), Handler.GetVersion()));
-        Handler.SendResponse(ClientFd, "200", "OK", Handler.GetFileType(), Handler.GetResponseBody());
+        handler->MainStateMachine();
+        close(connfd);
+
+        delete handler;
     }
 }
