@@ -429,5 +429,7 @@ HTTPHandler::ErrorType HTTPHandler::MainStateMachine() {
         }
     }
 
+    close(clientfd_);
+
     return ret;
 }

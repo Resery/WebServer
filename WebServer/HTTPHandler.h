@@ -242,8 +242,6 @@ public:
     std::string GetLine() { return std::string(buf_ + prevPos); };
 
     HTTPHandler::ErrorType MainStateMachine();
-
-
 };
 
 #endif

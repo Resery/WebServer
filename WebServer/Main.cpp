@@ -1,6 +1,7 @@
 #include <iostream>
 #include "Server.h"
 #include "HTTPHandler.h"
+#include "threadpool.h"
 
 int OpenListenFd(Server serverinfo) {
     int listenfd = 0;
@@ -37,6 +38,13 @@ int main(int argc, char **argv) {
 
     serverinfo.PrintServerInfo();
 
+    /*
+     *
+     * 此处为初始化线程池
+     *
+     */
+    ThreadPool<HTTPHandler> * pool = new ThreadPool<HTTPHandler>(8);
+
     while(true) {
         if ((connfd = accept(listenfd, (sockaddr *)&clientinfo, &clientlen)) < 0) {
             std::perror("Accept Connect Failed");
@@ -52,9 +60,10 @@ int main(int argc, char **argv) {
 
         handler->bufSize = read(connfd, handler->buf_, MAXLINE);
 
-        handler->MainStateMachine();
-        close(connfd);
+        pool->Append(handler);
 
-        delete handler;
+        // handler->MainStateMachine();
+
+        // delete handler;
     }
 }
