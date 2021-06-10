@@ -48,7 +48,7 @@ ThreadPool<T>::ThreadPool(unsigned int threadnum) {
 
     Running_ = true;
 
-    for (int i = 0; i < threadnum; i++) {
+    for (unsigned int i = 0; i < threadnum; i++) {
         if (pthread_create(threads_ + i, NULL, Worker, this) != 0) {
             delete [] threads_;
             throw std::exception();
@@ -107,5 +107,6 @@ void ThreadPool<T>::Run() {
         if (!request) continue;
 
         request->MainStateMachine();
+        // request->Process();
     }
 }

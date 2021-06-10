@@ -1,22 +1,74 @@
 #include "HTTPHandler.h"
+#include "epoll.h"
 
 #define MAXLINE 8192
-
-HTTPHandler::HTTPHandler(int Fd) {
-    clientfd_ = Fd;
-    static_ = true;
+HTTPHandler::HTTPHandler() {
+    clientfd_ = 0;
     mainstate_ = CheckRequestLine;
     followstate_ = LineOk;
+    static_ = true;
+    epollfd_ = 0;
+    method_ = "";    
+    path_ = "";
+    version_ = "";
+    cgiargs_ = "";
+    filename_ = "";
+    filetype_ = "";
+    responsebody_ = "";
+    response_ = "";
+
     prevPos = 0;
     currentPos = 0;
     longConnect = false;
     contentLength = 0;
+
+    memset(buf_, 0, sizeof(buf_));
+
+    prevPos = 0;
+    currentPos = 0;
+
+    bufSize = 0;
+
+    contentLength = 0;
+    longConnect = true;
+}
+
+HTTPHandler::HTTPHandler(int fd) {
+    clientfd_ = fd;
+    mainstate_ = CheckRequestLine;
+    followstate_ = LineOk;
+    static_ = true;
+    epollfd_ = 0;
+    method_ = "";    
+    path_ = "";
+    version_ = "";
+    cgiargs_ = "";
+    filename_ = "";
+    filetype_ = "";
+    responsebody_ = "";
+    response_ = "";
+
+    prevPos = 0;
+    currentPos = 0;
+    longConnect = false;
+    contentLength = 0;
+
+    memset(buf_, 0, sizeof(buf_));
+
+    prevPos = 0;
+    currentPos = 0;
+
+    bufSize = 0;
+
+    contentLength = 0;
+    longConnect = true;
 }
 
 HTTPHandler::HTTPHandler(const HTTPHandler & httphandler) : 
 clientfd_(httphandler.clientfd_),
 mainstate_(httphandler.mainstate_),
 followstate_(httphandler.followstate_),
+epollfd_(httphandler.epollfd_),
 method_(httphandler.method_),
 path_(httphandler.path_),
 version_(httphandler.version_),
@@ -30,6 +82,35 @@ longConnect(httphandler.longConnect)
 {}
 
 HTTPHandler::~HTTPHandler() {
+    clientfd_ = 0;
+    mainstate_ = 0;
+    followstate_ = 0;
+    static_ = 0;
+    epollfd_ = 0;
+    method_ = "";    
+    path_ = "";
+    version_ = "";
+    cgiargs_ = "";
+    filename_ = "";
+    filetype_ = "";
+    responsebody_ = "";
+    response_ = "";
+
+    prevPos = 0;
+    currentPos = 0;
+    longConnect = 0;
+    contentLength = 0;
+
+    memset(buf_, 0, sizeof(buf_));
+
+    prevPos = 0;
+    currentPos = 0;
+
+    bufSize = 0;
+
+    contentLength = 0;
+    longConnect = 0;
+
 }
 
 int HTTPHandler::GetClientFd() {
@@ -56,6 +137,7 @@ std::string & HTTPHandler::GetFileType() {
     return filetype_;
 }
 
+/*
 int HTTPHandler::HttpRead(int CFd, void * Buf, size_t Count) {
     char * TmpBuf = (char *)Buf;
     size_t LeftNum = Count; 
@@ -110,8 +192,9 @@ int HTTPHandler::HttpWrite(int CFd, const void * Buf, size_t Count) {
 
     return WriteNum;
 }
+*/
 
-void HTTPHandler::SendResponse(int CFd, const std::string & ResponseCode, const std::string & ResponseMsg,
+bool HTTPHandler::SendResponse(int CFd, const std::string & ResponseCode, const std::string & ResponseMsg,
                         const std::string & ResponseBodyType,const std::string & ResponseBody) {
     std::stringstream Stream;
     Stream << "HTTP/1.1" << " " << ResponseCode << " " << ResponseMsg << "\r\n";
@@ -125,12 +208,16 @@ void HTTPHandler::SendResponse(int CFd, const std::string & ResponseCode, const 
     Stream << "\r\n";
     Stream << ResponseBody;
 
-    std::string && Response = Stream.str();
+    response_ = Stream.str();
+    // std::string && Response = Stream.str();
 
-    send(CFd, Response.c_str(), Response.size(), MSG_SYN);
+    send(CFd, response_.c_str(), response_.size(), MSG_SYN);
+    // write(CFd, Response.c_str(), Response.size());
 
     std::clog << "================================== Response Packet ===================================" << std::endl;
-    std::clog << Response.c_str() << std::endl;
+    std::clog << response_.c_str() << std::endl;
+
+    return ResponseBody.size() != 0;
 }
 
 void HTTPHandler::SendErrorResponse(int CFd, const std::string & ErrorCode, const std::string & ErrorMsg) {
@@ -145,45 +232,61 @@ void HTTPHandler::SendErrorResponse(int CFd, const std::string & ErrorCode, cons
     SendResponse(CFd, ErrorCode, ErrorMsg, "text/html", ResponseBody);
 }
 
-void HTTPHandler::HandleError(int CFd, HTTPHandler::ErrorType ErrorCode) {
+bool HTTPHandler::HandleError(int CFd, HTTPHandler::ErrorType ErrorCode) {
     std::string ErrorMsg;
     switch (ErrorCode) {
     case ErrSuccess:
         break;
     case ErrForBid:
         SendErrorResponse(CFd, "403", "ForBid");
+        return true;
         break;
     case ErrSendResponseFail:
         std::clog << "Send Response Failed" << std::endl;
+        return true;
         break;
     case ErrNotFound:
         SendErrorResponse(CFd, "404", "Not Found");
+        return true;
         break;
     case ErrInternalError:
         SendErrorResponse(CFd, "500", "Internal Error");
+        return true;
         break;
     case ErrImplemented:
         SendErrorResponse(CFd, "501", "Not Implemented");
+        return true;
         break;
     case ErrVersionNotSupported:
         SendErrorResponse(CFd, "505", "version_ Not Supported");
+        return true;
+        break;
+    case ErrNoRequest:
+    case ErrGetRequest:
         break;
     }
+
+    return false;
 }
 
 void HTTPHandler::ParseFileType(const std::string & FN) {
-    if (FN.find(".html") != 0)
+    if ((int)FN.find(".html") > 0)
         filetype_ = "text/html";
-    else if (FN.find(".gif") != 0)
+    else if ((int)FN.find(".gif") > 0)
         filetype_ = "image/gif";
-    else if (FN.find(".jpg") != 0)
+    else if ((int)FN.find(".jpg") > 0)
         filetype_ = "image/jpg";
-    else if (FN.find(".png") != 0)
+    else if ((int)FN.find(".png") > 0)
         filetype_ = "image/png";
+    else if ((int)FN.find(".ico") > 0)
+        filetype_ = "image/ico";
+    else if ((int)FN.find(".mp4") > 0)
+        filetype_ = "video/mp4";
     else
         filetype_ = "text/plain";
 }
 
+/*
 void HTTPHandler::ReadRequest(int CFd, std::string & Request) {
     char Buffer[MAXLINE];
 
@@ -202,6 +305,7 @@ void HTTPHandler::ReadRequest(int CFd, std::string & Request) {
     }
     
 }
+*/
 
 void HTTPHandler::ParseRequest(int CFd) {
     char Buf[MAXLINE];
@@ -369,7 +473,7 @@ HTTPHandler::ErrorType HTTPHandler::ParseRequestLine(std::string & requestline) 
 
     mainstate_ = CheckHeader;
 
-    return Check(method_, path_, version_);
+    return ErrSuccess;
 }
 
 HTTPHandler::ErrorType HTTPHandler::ParseHeader(std::string & requestheader) {
@@ -402,10 +506,11 @@ HTTPHandler::ErrorType HTTPHandler::ParseBody(std::string & requestbody) {
 }
 
 HTTPHandler::ErrorType HTTPHandler::MainStateMachine() {
-    HTTPHandler::ErrorType ret = ErrSuccess;
+    HTTPHandler::ErrorType ret = ErrNoRequest;
     std::string line;
+    // bool flag = false;
 
-    while ((mainstate_ == CheckBody && followstate_ == LineOk) || ((followstate_ = ParseLine() == LineOk))) {
+    while ((mainstate_ == CheckRequestLine && (followstate_ = ParseLine()) == LineOk) || ((followstate_ = ParseLine() == LineOk))) {
         std::string line = GetLine();
         prevPos = currentPos;
         std::clog << "[*] [" << line << "]" << std::endl;
@@ -417,10 +522,12 @@ HTTPHandler::ErrorType HTTPHandler::MainStateMachine() {
             break;
         case CheckHeader:
             if ((ret = ParseHeader(line)) == ErrGetRequest)
+                // return ErrSuccess;
                 SendResponse(clientfd_, "200", "OK", GetFileType(), GetResponseBody());
             break;
         case CheckBody:
             if ((ret = ParseBody(line)) != ErrGetRequest)
+                // return ErrSuccess;
                 SendResponse(clientfd_, "200", "OK", GetFileType(), GetResponseBody());
             break;
         default:
@@ -432,4 +539,66 @@ HTTPHandler::ErrorType HTTPHandler::MainStateMachine() {
     close(clientfd_);
 
     return ret;
+}
+
+/*
+HTTPHandler::ErrorType HTTPHandler::DoRequest() {
+
+    if (contentLength != 0) {
+
+    } else {
+        switch (requestmethod_) {
+        case Get:
+            break;
+        case Post:
+
+            break;
+        case Head:
+
+            break;
+        default:
+            break;
+        }
+    }
+
+}
+*/
+
+void HTTPHandler::SetClientFd(int fd) {
+    clientfd_ = fd;
+}
+
+void HTTPHandler::SetEpollFd(int fd) {
+    epollfd_ = fd;
+}
+
+std::string & HTTPHandler::GetResponse() {
+    return response_;
+}
+
+void HTTPHandler::Process() {
+    // Epoll event(epollfd_);
+    epoll_event ev;
+
+    HTTPHandler::ErrorType readRet = MainStateMachine();
+    if (readRet == ErrNoRequest) {
+        ev.data.fd = clientfd_;
+        ev.events = EPOLLIN;
+        epoll_ctl(epollfd_, EPOLL_CTL_MOD, ev.data.fd, &ev);
+        // event.Mod(clientfd_, EPOLLIN);
+        return;
+    }
+
+    bool writeRet = SendResponse(clientfd_, "200", "OK", GetFileType(), GetResponseBody());
+    if (writeRet) {
+        ev.data.fd = clientfd_;
+        ev.events = EPOLLOUT;
+        epoll_ctl(epollfd_, EPOLL_CTL_MOD, ev.data.fd, &ev);
+        // event.Mod(clientfd_, EPOLLOUT);
+        return;
+    }
+
+    ev.data.fd = clientfd_;
+    ev.events = EPOLLIN | EPOLLOUT;
+    epoll_ctl(epollfd_, EPOLL_CTL_DEL, clientfd_, &ev);
 }

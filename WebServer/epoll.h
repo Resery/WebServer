@@ -12,16 +12,22 @@ private:
 
 public:
     Epoll() : epollFd_(-1) { Create(); }
+    Epoll(int epollfd) : epollFd_(epollfd) {}
 
     ~Epoll() { Release(); }
+
+    int GetEpollFd() { return epollFd_; }
 
     bool EpollIsVaild() { return (epollFd_ >= 0); }
 
     bool Create() {
-        if (!EpollIsVaild() || (epollFd_ = epoll_create(1)) == -1) {
+        if ((epollFd_ = epoll_create(1)) == -1 || !EpollIsVaild()) {
             std::cerr <<  "Create Epoll Failed" << std::endl;
             return false;
         }
+
+        memset(events_, 0, sizeof(events_));
+
         return true;
     }
 
@@ -29,7 +35,9 @@ public:
         if (EpollIsVaild()) {
             epoll_event ev;
             ev.events = event;
-            return epoll_ctl(epollFd_, EPOLL_CTL_ADD, fd, &ev) != -1;
+            ev.data.ptr = 0;
+            ev.data.fd = fd;
+            return epoll_ctl(epollFd_, EPOLL_CTL_ADD, ev.data.fd, &ev) != -1;
         }
         return false;
     }
@@ -38,7 +46,9 @@ public:
         if (EpollIsVaild()) {
             epoll_event ev;
             ev.events = event;
-            return epoll_ctl(epollFd_, EPOLL_CTL_MOD, fd, &ev) != -1;
+            ev.data.ptr = 0;
+            ev.data.fd = fd;
+            return epoll_ctl(epollFd_, EPOLL_CTL_MOD, ev.data.fd, &ev) != -1;
         }
         return false;
     }
@@ -47,7 +57,9 @@ public:
         if (EpollIsVaild()) {
             epoll_event ev;
             ev.events = event;
-            return epoll_ctl(epollFd_, EPOLL_CTL_DEL, fd, &ev) != -1;
+            ev.data.ptr = 0;
+            ev.data.fd = fd;
+            return epoll_ctl(epollFd_, EPOLL_CTL_DEL, ev.data.fd, &ev) != -1;
         }
         return false;
     }
@@ -57,9 +69,13 @@ public:
         epollFd_ = -1;
     }
 
-    bool Wait(int timeout) {
-        if (EpollIsVaild())
+    int Wait(int timeout) {
+        if (EpollIsVaild()) {
+            // memset(events_, 0, sizeof(events_));
             return epoll_wait(epollFd_, events_, MaxEvents, timeout);
+        }
+
+        return false;
     }
 
     epoll_event GetEvent(size_t index) {

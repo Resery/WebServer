@@ -23,6 +23,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/epoll.h>
 
 /**
  * @brief: The class of HTTPHandler is for deal with any connect from client,
@@ -40,6 +41,8 @@ private:
 
     bool static_;
 
+    int epollfd_;
+
     std::string method_;
     std::string path_;
     std::string version_;
@@ -49,6 +52,10 @@ private:
     std::string filetype_;
 
     std::string responsebody_;
+
+    std::string response_;
+
+    // unsigned int requestmethod_;
 
     // Support Error Type
     enum ErrorType {
@@ -103,6 +110,7 @@ public:
      * @brief: Init the object with the Client File Description
      * @param: Fd       The Client File Description
      */
+    HTTPHandler();
     HTTPHandler(int Fd);
     HTTPHandler(const HTTPHandler&);
 
@@ -184,7 +192,7 @@ public:
      * @param: ResponseBodyType    The type of reponse body
      * @param: ResponseBody        The content of reponse body
      */
-    void SendResponse(int ClientFd, const std::string & ResponseCode, const std::string & ResponseMsg,
+    bool SendResponse(int ClientFd, const std::string & ResponseCode, const std::string & ResponseMsg,
                         const std::string & ResponseBodyType, const std::string & ResponseBody);
 
     /**
@@ -200,7 +208,7 @@ public:
      * @param: ClientFd     The Client File Description 
      * @param: ErrorCode    The error code of this mistake
      */
-    void HandleError(int ClientFd, ErrorType ErrorCode);
+    bool HandleError(int ClientFd, ErrorType ErrorCode);
 
     /**
      * @brief: Check the request whether or not vaild
@@ -242,6 +250,15 @@ public:
     std::string GetLine() { return std::string(buf_ + prevPos); };
 
     HTTPHandler::ErrorType MainStateMachine();
+
+    HTTPHandler::ErrorType DoRequest();
+
+    void Process();
+
+    void SetClientFd(int fd);
+    void SetEpollFd(int fd);
+
+    std::string & GetResponse();
 };
 
 #endif

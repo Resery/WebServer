@@ -37,14 +37,12 @@ public:
     };
 
     ~Mutex() {
-        if (pthread_mutex_destroy(&mutex_) == -1) {
-            throw std::exception();
-        }
+        pthread_mutex_destroy(&mutex_);
     }
 
-    bool Lock() { pthread_mutex_lock(&mutex_); }
+    void Lock() { pthread_mutex_lock(&mutex_); }
 
-    bool UnLock() { pthread_mutex_unlock(&mutex_); }
+    void UnLock() { pthread_mutex_unlock(&mutex_); }
 
     pthread_mutex_t * Get() { return &mutex_; }
 
@@ -61,9 +59,7 @@ public:
     }
 
     ~Condicate() {
-        if (pthread_cond_destroy(&cond_) == -1) {
-            throw std::exception();
-        }
+        pthread_cond_destroy(&cond_);
     }
 
     bool Signal() { return pthread_cond_signal(&cond_) == 0; }
